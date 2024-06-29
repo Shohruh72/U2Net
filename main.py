@@ -7,6 +7,7 @@ import warnings
 from timm import utils
 
 import torch
+from torchvision import transforms
 from torch.utils.data import DataLoader
 
 from utils import util
@@ -26,8 +27,10 @@ def train(args):
     # Scheduler
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-5)
 
-    dataset = Dataset(os.path.join(args.data_dir, 'train'), is_train=True)
-
+    dataset = Dataset(os.path.join(args.data_dir, 'train'), transform=transforms.Compose([
+                                                                                          util.RescaleT(320),
+                                                                                          util.RandomCrop(288),
+                                                                                          util.ToTensorLab(flag=0)]))
     sampler = None
     if args.distributed:
         sampler = torch.utils.data.distributed.DistributedSampler(dataset)
@@ -47,7 +50,6 @@ def train(args):
         if args.local_rank == 0:
             writer = csv.DictWriter(f, fieldnames=['epoch', 'Loss'])
             writer.writeheader()
-
         for epoch in range(args.epochs):
             model.train()
             p_bar = enumerate(loader)
@@ -85,7 +87,7 @@ def train(args):
                 avg_loss2.update(loss.data.item(), images.size(0))
 
                 if args.local_rank == 0:
-                    s = ('%10s' + '%10.4g') % (f'{epoch + 1}/{args.epochs}', loss.item())
+                    s = ('%10s' + '%10.4g') % (f'{epoch + 1}/{args.epochs}', losses.item())
                     p_bar.set_description(s)
 
             scheduler.step()
@@ -125,7 +127,9 @@ def test(args, model=None):
     model.cuda()
     model.eval()
 
-    dataset = Dataset(os.path.join(args.data_dir, 'test'), is_train=False)
+    dataset = Dataset(os.path.join(args.data_dir, 'test'), transform=transforms.Compose([
+                                                                                        util.RescaleT(320),
+                                                                                        util.ToTensorLab(flag=0)]))
 
     avg_loss = util.AverageMeter()
     loader = DataLoader(dataset, args.batch_size, num_workers=4)
@@ -136,7 +140,7 @@ def test(args, model=None):
             labels = labels.cuda().half()
 
             output = model(images)
-            loss, _ = util.loss_fusion(output, labels)
+            _, loss = util.loss_fusion(output, labels)
 
             avg_loss.update(loss.data.item(), images.size(0))
 
@@ -144,6 +148,27 @@ def test(args, model=None):
     model.float()  # for training
     return avg_loss.avg
 
+
+def demo():
+    model = torch.load('weights/last.pt', map_location='cuda')['model'].float()
+    model.cuda()
+    model.eval()
+
+    dataset = Dataset(os.path.join('./images'),
+                      transform=transforms.Compose([util.RescaleT(320), util.ToTensorLab(flag=0)]))
+    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
+
+    for i, data in enumerate(loader):
+        inputs_test = data['image']
+        inputs_test = inputs_test.type(torch.FloatTensor)
+        inputs_test = inputs_test.cuda()
+
+        d1, d2, d3, d4, d5, d6, d7 = model(inputs_test)
+
+        pred = d1[:, 0, :, :]
+        pred = util.normPRED(pred)
+
+        util.save_output('./images/images.jpeg', pred, './results')
 
 
 def main():
@@ -154,7 +179,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--test', action='store_true')
-    parser.add_argument('--demo', action='store_true')
+    parser.add_argument('--demo', default=True, action='store_true')
     args = parser.parse_args()
 
     args.world_size = int(os.getenv('WORLD_SIZE', 1))
@@ -168,6 +193,8 @@ def main():
         train(args)
     if args.test:
         test(args)
+    if args.demo:
+        demo()
 
 
 if __name__ == "__main__":
