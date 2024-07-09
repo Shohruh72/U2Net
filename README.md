@@ -39,6 +39,9 @@ pip install timm
 * Configure your dataset path in `main.py` for testing
 * Run `python main.py --test` for testing
 
+### Pretrained weight:
+saved in `weights` folder
+
 ### Demo
 
 * Configure your video path in `main.py` for visualizing the demo
