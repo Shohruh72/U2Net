@@ -45,7 +45,7 @@ class Dataset(data.Dataset):
 
     @staticmethod
     def load_input(data_dir):
-        images = glob.glob(os.path.join(data_dir, '*.jpeg'))
-        # labels = [os.path.join(data_dir, 'labels', os.path.basename(f).replace('.jpg', '.png')) for f in images]
+        images = glob.glob(os.path.join(data_dir, 'images', '*.jpg'))
+        labels = [os.path.join(data_dir, 'labels', os.path.basename(f).replace('.jpg', '.png')) for f in images]
 
-        return images, []
+        return images, labels
