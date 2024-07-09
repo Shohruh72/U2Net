@@ -156,7 +156,13 @@ def demo():
     model.cuda()
     model.eval()
 
-    stream = cv2.VideoCapture(0)
+    stream = cv2.VideoCapture('images/video.mp4')
+    fps = int(stream.get(cv2.CAP_PROP_FPS))
+    h = int(stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    w = int(stream.get(cv2.CAP_PROP_FRAME_WIDTH))
+    fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+
+    output = cv2.VideoWriter('demo/demo1.avi', fourcc, fps, (w, h))
 
     if not stream.isOpened():
         print("Error: Could not open webcam.")
@@ -165,10 +171,9 @@ def demo():
     transform = transforms.Compose([util.RescaleT(320), util.ToTensorLab(flag=0)])
 
     while True:
-        # ret, frame = stream.read()
-        # if not ret:
-        #     break
-        frame = cv2.imread('images/1.jpg')
+        ret, frame = stream.read()
+        if not ret:
+            break
         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         sample = {'image': np.array(image), 'label': np.zeros_like(np.array(image))}
 
@@ -185,11 +190,13 @@ def demo():
         pred_image = cv2.cvtColor(pred_image, cv2.COLOR_GRAY2BGR)
         pred_image = cv2.resize(pred_image, (frame.shape[1], frame.shape[0]))
         cv2.imshow('pred image', pred_image)
+        output.write(pred_image)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     stream.release()
+    output.release()
     cv2.destroyAllWindows()
 
 
@@ -197,12 +204,6 @@ def demo_image():
     model = torch.load('weights/last.pt', map_location='cuda')['model'].float()
     model.cuda()
     model.eval()
-
-    stream = cv2.VideoCapture(0)
-
-    if not stream.isOpened():
-        print("Error: Could not open webcam.")
-        return
 
     transform = transforms.Compose([util.RescaleT(320), util.ToTensorLab(flag=0)])
 
@@ -236,7 +237,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--test', action='store_true')
-    parser.add_argument('--demo', action='store_true')
+    parser.add_argument('--demo', default=True, action='store_true')
     parser.add_argument('--demo-image', action='store_true')
     args = parser.parse_args()
 
