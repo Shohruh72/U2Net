@@ -45,9 +45,6 @@ def loss_fusion(output, labels_v):
     losses = [bce_loss(d, labels_v) for d in output]
     total_loss = sum(losses)
 
-    # print(
-    #     "l0: %3f, l1: %3f, l2: %3f, l3: %3f, l4: %3f, l5: %3f, l6: %3f\n" % tuple(loss.data.item() for loss in losses))
-
     return losses[0], total_loss
 
 
