@@ -1,12 +1,14 @@
 import argparse
 import os
 import csv
+import cv2
 import copy
 import tqdm
-import warnings
-from timm import utils
-
 import torch
+import warnings
+import numpy as np
+from PIL import Image
+from timm import utils
 from torchvision import transforms
 from torch.utils.data import DataLoader
 
@@ -28,9 +30,9 @@ def train(args):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-5)
 
     dataset = Dataset(os.path.join(args.data_dir, 'train'), transform=transforms.Compose([
-                                                                                          util.RescaleT(320),
-                                                                                          util.RandomCrop(288),
-                                                                                          util.ToTensorLab(flag=0)]))
+        util.RescaleT(320),
+        util.RandomCrop(288),
+        util.ToTensorLab(flag=0)]))
     sampler = None
     if args.distributed:
         sampler = torch.utils.data.distributed.DistributedSampler(dataset)
@@ -128,8 +130,8 @@ def test(args, model=None):
     model.eval()
 
     dataset = Dataset(os.path.join(args.data_dir, 'test'), transform=transforms.Compose([
-                                                                                        util.RescaleT(320),
-                                                                                        util.ToTensorLab(flag=0)]))
+        util.RescaleT(320),
+        util.ToTensorLab(flag=0)]))
 
     avg_loss = util.AverageMeter()
     loader = DataLoader(dataset, args.batch_size, num_workers=4)
@@ -150,25 +152,80 @@ def test(args, model=None):
 
 
 def demo():
+    model = torch.load('weights/best.pt', map_location='cuda')['model'].float()
+    model.cuda()
+    model.eval()
+
+    stream = cv2.VideoCapture(0)
+
+    if not stream.isOpened():
+        print("Error: Could not open webcam.")
+        return
+
+    transform = transforms.Compose([util.RescaleT(320), util.ToTensorLab(flag=0)])
+
+    while True:
+        # ret, frame = stream.read()
+        # if not ret:
+        #     break
+        frame = cv2.imread('images/1.jpg')
+        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        sample = {'image': np.array(image), 'label': np.zeros_like(np.array(image))}
+
+        image = transform(sample)['image'].unsqueeze(0)
+        image = image.type(torch.FloatTensor).cuda()
+
+        with torch.inference_mode():
+            d1, d2, d3, d4, d5, d6, d7 = model(image)
+
+        pred = d1[:, 0, :, :]
+        pred = util.normPRED(pred).squeeze().cpu().data.numpy()
+
+        pred_image = (pred * 255).astype(np.uint8)
+        pred_image = cv2.cvtColor(pred_image, cv2.COLOR_GRAY2BGR)
+        pred_image = cv2.resize(pred_image, (frame.shape[1], frame.shape[0]))
+        cv2.imshow('pred image', pred_image)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    stream.release()
+    cv2.destroyAllWindows()
+
+
+def demo_image():
     model = torch.load('weights/last.pt', map_location='cuda')['model'].float()
     model.cuda()
     model.eval()
 
-    dataset = Dataset(os.path.join('./images'),
-                      transform=transforms.Compose([util.RescaleT(320), util.ToTensorLab(flag=0)]))
-    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
+    stream = cv2.VideoCapture(0)
 
-    for i, data in enumerate(loader):
-        inputs_test = data['image']
-        inputs_test = inputs_test.type(torch.FloatTensor)
-        inputs_test = inputs_test.cuda()
+    if not stream.isOpened():
+        print("Error: Could not open webcam.")
+        return
 
-        d1, d2, d3, d4, d5, d6, d7 = model(inputs_test)
+    transform = transforms.Compose([util.RescaleT(320), util.ToTensorLab(flag=0)])
 
-        pred = d1[:, 0, :, :]
-        pred = util.normPRED(pred)
+    frame = cv2.imread('images/5.png')
+    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    sample = {'image': np.array(image), 'label': np.zeros_like(np.array(image))}
 
-        util.save_output('./images/images.jpeg', pred, './results')
+    image = transform(sample)['image'].unsqueeze(0)
+    image = image.type(torch.FloatTensor).cuda()
+
+    with torch.inference_mode():
+        d1, d2, d3, d4, d5, d6, d7 = model(image)
+
+    pred = d1[:, 0, :, :]
+    pred = util.normPRED(pred).squeeze().cpu().data.numpy()
+
+    pred_image = (pred * 255).astype(np.uint8)
+    pred_image = cv2.cvtColor(pred_image, cv2.COLOR_GRAY2BGR)
+    pred_image = cv2.resize(pred_image, (frame.shape[1], frame.shape[0]))
+    cv2.imshow('pred image', pred_image)
+    cv2.imwrite('demo/5.png', pred_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 def main():
@@ -179,7 +236,8 @@ def main():
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--train', action='store_true')
     parser.add_argument('--test', action='store_true')
-    parser.add_argument('--demo', default=True, action='store_true')
+    parser.add_argument('--demo', action='store_true')
+    parser.add_argument('--demo-image', action='store_true')
     args = parser.parse_args()
 
     args.world_size = int(os.getenv('WORLD_SIZE', 1))
@@ -195,6 +253,8 @@ def main():
         test(args)
     if args.demo:
         demo()
+    if args.demo_image:
+        demo_image()
 
 
 if __name__ == "__main__":
